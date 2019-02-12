@@ -18,7 +18,7 @@
   lineinfile:
     dest: /etc/ssh/sshd_config
     regexp: '^Subsystem(\s+)sftp'
-    line: "Subsystem sftp internal-sftp -f AUTH -l VERBOSE"
+    line: "Subsystem sftp internal-sftp -f AUTH -l VERBOSE {{ '-u sftp_umask' if sftp_umask != '' }}"
     state: present
   notify: SFTP-Server | Restart sshd
 
@@ -44,10 +44,11 @@
     marker: '# {mark} SFTP-Server {{ sftp_group_name }} block'
     block: |
       Match Group {{ sftp_group_name }}
-          ChrootDirectory %h
+          ChrootDirectory "{{ sftp_home_partition }}/%h"
+          AuthorizedKeysFile "/sftphome.sshkeys/%u/.ssh/authorized_keys"
           AllowTCPForwarding no
           X11Forwarding no
-          ForceCommand internal-sftp {{ sftp_enable_logging | ternary('-l VERBOSE', '') }}
+          ForceCommand internal-sftp {{ sftp_enable_logging | ternary('-l VERBOSE', '') }} {{ '-u sftp_umask' if sftp_umask != '' }}
           PasswordAuthentication {{ sftp_allow_passwords | ternary('yes', 'no') }}
   notify: SFTP-Server | Restart sshd
 
