@@ -109,7 +109,7 @@
 
 - name: SFTP-Server | Create sftp_key_partition/<user>/.ssh
   file:
-    path: "{{ sftp_key_partitiont}/{{ item.name }}/.ssh"
+    path: "{{ sftp_key_partition }}/{{ item.name }}/.ssh"
     owner: "{{ item.name }}"
     group: "{{ item.group | default(sftp_group_name) }}"
     mode: 0750
