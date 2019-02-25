@@ -19,7 +19,7 @@
   lineinfile:
     dest: /etc/ssh/sshd_config
     regexp: '^Subsystem(\s+)sftp'
-    line: "Subsystem sftp internal-sftp -f AUTH -l VERBOSE {% if sftp_umask is defined %}{{ '-u %s' % sftp_umask if sftp_umask != '' }}{% endif %}"
+    line: "Subsystem sftp internal-sftp -f LOCAL0 -l VERBOSE {% if sftp_umask is defined %}{{ '-u %s' % sftp_umask if sftp_umask != '' }}{% endif %}"
     state: present
   notify: SFTP-Server | Restart sshd
 
@@ -47,15 +47,15 @@
     marker: '# {mark} Ansible managed SFTP-Server {{ sftp_group_name }} block'
     block: |
       Match Group {{ sftp_group_name }}
-          ChrootDirectory {{ sftp_home_partition }}
+          ChrootDirectory {{ sftp_home_partition }}/%u
           AuthorizedKeysFile {{ sftp_key_partition | default(sftp_home_partition) }}/%u/.ssh/authorized_keys
           AllowTCPForwarding no
           X11Forwarding no
           PasswordAuthentication {{ sftp_allow_passwords | ternary('yes', 'no') }}
         {% if sftp_umask is defined %}
-        ForceCommand internal-sftp {{ sftp_enable_logging | ternary('-l VERBOSE', '') }} {{ '-u %s' % sftp_umask if sftp_umask != '' }}
+        ForceCommand internal-sftp {{ sftp_enable_logging | ternary('-f LOCAL0 -l VERBOSE', '') }} {{ '-u %s' % sftp_umask if sftp_umask != '' }}
         {% else %}
-        ForceCommand internal-sftp {{ sftp_enable_logging | ternary('-l VERBOSE', '') }}
+        ForceCommand internal-sftp {{ sftp_enable_logging | ternary('-f LOCAL0 -l VERBOSE', '') }}
         {% endif %}
   notify: SFTP-Server | Restart sshd
 
@@ -171,14 +171,46 @@
 
 - name: SFTP-Server | Enable Logging
   blockinfile:
-    dest: "/etc/rsyslog.d/sshd.conf"
+    dest: "/etc/rsyslog.d/sftp.conf"
     create: yes
     block: |
       # Log internal-sftp in a separate file
-      :programname, isequal, "internal-sftp" -/var/log/sftp/verbose.log
-      :programname, isequal, "internal-sftp" ~
+      # https://www.the-art-of-web.com/system/sftp-logging-chroot/
+
+      $UMASK 0000
+
+      # create additional sockets for the sftp chrooted users
+      #module(load="imuxsock")
+      input(type="imuxsock" Socket="{{ sftp_home_partition }}/{{ item.name }}/dev/log" CreatePath="on")
+
+      # log internal-sftp activity to sftp.log
+      if $programname == 'internal-sftp' then {{ sftp_log | default('/var/log/sftp.log') }}
+      & stop
+      #if $programname == 'internal-sftp' then {
+      #   action(type="omfile" FileCreateMode="0640" file="{{ sftp_log | default('/var/log/sftp.log') }}")
+      #}
 
       # additionally write an auth log
-      auth,authpriv.*  /var/log/sftp/auth.log
+      #auth,authpriv.*   {{ sftp_log | default('/var/log/sftp.log') }}
+
+      # Reset back to default
+      #$UMASK 0077
+  when: sftp_enable_logging
+  with_items: "{{ _sftp_users }}"
+  notify: SFTP-Server | Restart rsyslog
+
+- name: SFTP-Server | Log rotate config
+  blockinfile:
+    dest: "/etc/logrotate.d/sftp"
+    create: yes
+    block: |
+      {{ sftp_log | default('/var/log/sftp.log') }}
+      {
+        rotate 32
+        sharedscripts
+        postrotate
+        /bin/kill -HUP $( cat /var/run/syslogd.pid 2> /dev/null ) 2> /dev/null || true
+        endscript
+      }
   when: sftp_enable_logging
   notify: SFTP-Server | Restart rsyslog
