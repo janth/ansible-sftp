@@ -109,7 +109,7 @@
 
 - name: SFTP-Server | Create sftp_key_partition/<user>/.ssh
   file:
-    path: "{{ item }}/.ssh"
+    path: "{{ sftp_key_partitiont}/{{ item.name }}/.ssh"
     owner: "{{ item.name }}"
     group: "{{ item.group | default(sftp_group_name) }}"
     mode: 0750
@@ -127,11 +127,11 @@
   authorized_key:
     path: "{{ sftp_key_partition |default(sftp_home_partition) }}/{{item.0.name}}/.ssh/authorized_keys"
     user: "{{ item.0.name }}"
-    key: "{{ lookup('file', item.1) }}"
-    exclusive: True
+    key: "{{ item.1 }}"
+    #state: "{{ item.1.state|default(present) }}"
   with_subelements:
     - "{{ _sftp_users }}"
-    - authorized
+    - ssh_keys
     - flags:
       skip_missing: True
 
